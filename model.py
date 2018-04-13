@@ -1,10 +1,10 @@
-# import tensorflow as tf
-# ### Only needed for me, not to block the whole GPU, you don't need this stuff
-# from keras.backend.tensorflow_backend import set_session
-# config = tf.ConfigProto()
-# config.gpu_options.per_process_gpu_memory_fraction = 0.3
-# set_session(tf.Session(config=config))
-# ### ---end of weird stuff
+import tensorflow as tf
+### Only needed for me, not to block the whole GPU, you don't need this stuff
+from keras.backend.tensorflow_backend import set_session
+config = tf.ConfigProto()
+config.gpu_options.per_process_gpu_memory_fraction = 0.2
+set_session(tf.Session(config=config))
+### ---end of weird stuff
 
 
 import sys
@@ -16,8 +16,8 @@ from keras.layers import Input, Dense, Embedding, Activation, Conv1D, TimeDistri
 from keras.layers import Bidirectional, Concatenate,Flatten,Reshape
 from keras.optimizers import SGD, Adam
 from keras.initializers import Constant
-#from keras.layers import CuDNNLSTM as LSTM  #massive speedup on graphics cards
-from keras.layers import LSTM
+from keras.layers import CuDNNLSTM as LSTM  #massive speedup on graphics cards
+#from keras.layers import LSTM
 from keras.callbacks import EarlyStopping, ModelCheckpoint
 from keras.preprocessing.sequence import pad_sequences
 
@@ -25,6 +25,8 @@ import numpy
 import json
 import re
 import h5py
+
+import random
 
 def normname(n):
     return re.sub("[^a-zA-Z0-9]","_",n)
@@ -50,7 +52,7 @@ class Predictor:
         inp_pos=Input(shape=(1,)) #one POS
         inp_deprel=Input(shape=(1,)) #one DEPREL
 
-        chars_emb=Embedding(len(self.char_dict),char_emb_dim,mask_zero=True,embeddings_initializer=Constant(value=0.01))(inp_chars)
+        chars_emb=Embedding(len(self.char_dict),char_emb_dim,mask_zero=False,embeddings_initializer=Constant(value=0.01))(inp_chars)
         pos_emb=Flatten()(Embedding(len(self.pos_dict),pos_emb_dim,embeddings_initializer=Constant(value=0.01))(inp_pos))
         drel_emb=Flatten()(Embedding(len(self.deprel_dict),deprel_emb_dim,embeddings_initializer=Constant(value=0.01))(inp_deprel))
 
@@ -71,27 +73,17 @@ class Predictor:
             print(model_json,file=f)
         
 
-if __name__=="__main__":
-    data_train=data.vectorize_data(sys.stdin,"dicts_fi.json")
-    import random
-    random.shuffle(data_train)
-    #data_train=data_train[:3000]
-    inputs=[item[0] for item in data_train]
-    outputs=[item[1] for item in data_train]
-
-    inputs=numpy.array(inputs)
-    inputs_chars,inputs_pos,inputs_deprel=pad_sequences(inputs[:,0],padding="post"),inputs[:,1],inputs[:,2]
-
-    outputs=numpy.array(outputs)
-    print("Inp shape",inputs_chars.shape)
-    print("Out shape",outputs.shape)
-    m=Predictor()
-    _,word_seq_len=inputs_chars.shape
-    m.build_model("dicts_fi.json",word_seq_len)
-    m.save_model("first_try")
-    save_cb=ModelCheckpoint(filepath="first_try.weights.h5", monitor='val_loss', verbose=1, save_best_only=True, mode='auto')
-    hist=m.model.fit([inputs_chars,inputs_pos,inputs_deprel],[outputs[:,i] for i in range(outputs.shape[1])],verbose=1,batch_size=200,epochs=15,validation_split=0.1,callbacks=[save_cb])
-    with open("first_try.history.json","w") as f:
-        json.dump((hist.epoch,hist.history),f)
-        
+# from sklearn.metrics import accuracy_score
+# def accuracy(predictions, gold, lengths):
+#     pred_tags = numpy.concatenate([labels[:lengths[i]] for i, labels in enumerate(predictions)]).ravel()
     
+#     gold_tags = numpy.concatenate([labels[:lengths[i], 0] for i, labels in enumerate(gold)]).ravel()
+    
+#     print('Accuracy:', accuracy_score(gold_tags, pred_tags))
+
+# class EvaluateFeats(keras.callbacks.Callback):
+#     def on_epoch_end(self, epoch, logs={}):
+#         pred = numpy.argmax(self.model.predict(validation_vectorized_data_padded), axis=-1)
+#         accuracy(pred, validation_vectorized_labels_padded, validation_lengths) # FIXME: Using global variables here, not good!
+
+            
