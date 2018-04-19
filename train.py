@@ -12,31 +12,27 @@ if __name__=="__main__":
     parser = argparse.ArgumentParser(description='Train')
     parser.add_argument('--train-file', help='.conllu')
     parser.add_argument('--devel-file', help='.conllu')
+    parser.add_argument('--dicts-file', help='.json')
+    parser.add_argument('--model-file', help='file-name-prefix to save to')
     args = parser.parse_args()
 
-    data_train=data.vectorize_data(open(args.train_file),"dicts_fi.json")
-    data_devel=data.vectorize_data(open(args.devel_file),"dicts_fi.json")
-
-    random.shuffle(data_train)
-    inputs_train=numpy.array([item[0] for item in data_train])
-    inputs_train_lst=[pad_sequences(inputs_train[:,0],padding="pre"),inputs_train[:,1],inputs_train[:,2]]
-    word_seq_len=inputs_train_lst[0].shape[1]
-    
-    outputs_train=numpy.array([item[1] for item in data_train])
-    outputs_train_lst=[outputs_train[:,i] for i in range(outputs_train.shape[1])]
-
-    inputs_devel=numpy.array([item[0] for item in data_devel])
-    inputs_devel_lst=[pad_sequences(inputs_devel[:,0],padding="pre",maxlen=word_seq_len),inputs_devel[:,1],inputs_devel[:,2]]
-    outputs_devel=numpy.array([item[1] for item in data_devel])
-    outputs_devel_lst=[outputs_devel[:,i] for i in range(outputs_devel.shape[1])]
+    with open(args.train_file) as f:
+        train_conllu=data.read_conll(f)
+        inputs_train_dict,outputs_train_dict,output_features=data.prep_data(train_conllu,args.dicts_file,word_seq_len=None,shuffle=True)
+    word_seq_len=inputs_train_dict["inp_char_seq"].shape[1]
+    with open(args.devel_file) as f:
+        devel_conllu=data.read_conll(f)
+        inputs_devel_dict,outputs_devel_dict,output_features_dev=data.prep_data(devel_conllu,args.dicts_file,word_seq_len=word_seq_len,shuffle=False)
+        assert output_features==output_features_dev
 
     m=model.Predictor()
-    m.build_model("dicts_fi.json",word_seq_len)
+    m.build_model(args.dicts_file,word_seq_len)
 
-    model_name="second_try"
+    model_name=args.model_file
     m.save_model(model_name)
     save_cb=ModelCheckpoint(filepath=model_name+".weights.h5", monitor='val_loss', verbose=1, save_best_only=True, mode='auto')
-    hist=m.model.fit(x=inputs_train_lst, y=outputs_train_lst, validation_data=(inputs_devel_lst,outputs_devel_lst), verbose=1, batch_size=200, epochs=15, callbacks=[save_cb])
+    es_cb=EarlyStopping(monitor='val_loss', min_delta=0, patience=4, verbose=1, mode='auto')
+    hist=m.model.fit(x=inputs_train_dict, y=outputs_train_dict, validation_data=(inputs_devel_dict,outputs_devel_dict), verbose=1, batch_size=200, epochs=100, callbacks=[save_cb,es_cb])
     with open(model_name+".history.json","w") as f:
         json.dump((hist.epoch,hist.history),f)
 

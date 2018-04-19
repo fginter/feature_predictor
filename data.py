@@ -1,9 +1,13 @@
 import sys
 import json
+import random
+import numpy
+from keras.preprocessing.sequence import pad_sequences
+import model
 
 ID,FORM,LEMMA,UPOS,XPOS,FEATS,HEAD,DEPREL,DEPS,MISC=range(10)
 
-def read_conll(inp,max_sent=0,drop_tokens=True):
+def read_conll(inp,max_sent=0,drop_tokens=True,drop_nulls=True):
     comments=[]
     sent=[]
     yielded=0
@@ -21,6 +25,8 @@ def read_conll(inp,max_sent=0,drop_tokens=True):
         else:
             cols=line.split("\t")
             if drop_tokens and "-" in cols[ID]:
+                continue
+            if drop_nulls and "." in cols[ID]:
                 continue
             sent.append(cols)
     else:
@@ -69,25 +75,36 @@ def vectorize_word(cols,output_features,char_dict,pos_dict,deprel_dict,feat_val_
     return [char_seq,pos,deprel],outputs
     
     
-def vectorize_data(inp,dicts_filename,output_features=None):
+def vectorize_data(inp,dicts_filename):
     with open(dicts_filename,"rt") as f:
         char_dict,pos_dict,deprel_dict,feat_val_dict=json.load(f)
-    if output_features is None:
-        output_features=[feat for feat in sorted(feat_val_dict.keys())]
+    output_features=[feat for feat in sorted(feat_val_dict.keys())]
     result=[]
-    for tree,comments in read_conll(inp):
+    for tree,comments in inp:
         for cols in tree:
             result.append(vectorize_word(cols,output_features,char_dict,pos_dict,deprel_dict,feat_val_dict))
-    return result
+    return result, output_features
+
+def get_inp_outp(vectorized_data,output_features,word_seq_len,shuffle=False):
+    """vectorized_data - (data,feature names) produced by vectorize_data()
+       returns ready-made dictionaries of inputs and outputs named by layer
+       word_seq_len can be None for max padding"""
+    if shuffle:
+        random.shuffle(vectorized_data)
+    inputs=numpy.array([item[0] for item in vectorized_data])
+    inputs_dict={"inp_char_seq":pad_sequences(inputs[:,0],padding="pre",maxlen=word_seq_len),\
+                 "inp_pos":inputs[:,1],\
+                 "inp_deprel":inputs[:,2]}
+    outputs=numpy.array([item[1] for item in vectorized_data])
+    outputs_dict=dict((("out_"+model.normname(feat),outputs[:,i]) for i,feat in enumerate(output_features)))
+    return inputs_dict,outputs_dict
+
+
+def prep_data(inp,dicts_filename,word_seq_len=None,shuffle=False):
+    data,output_features=vectorize_data(inp,dicts_filename)
+    inputs_dict,outputs_dict=get_inp_outp(data,output_features,word_seq_len,shuffle)
+    return inputs_dict,outputs_dict,output_features
+    
 
 if __name__=="__main__":
-    #char_dict,pos_dict,deprel_dict,feat_val_dict=build_dicts(sys.stdin)
-    #with open("dicts_fi.json","wt") as f:
-    #    json.dump([char_dict,pos_dict,deprel_dict,feat_val_dict],f)
-
-    ##TEST
-    data=vectorize_data(sys.stdin,"dicts_fi.json")
-    print("Len=",len(data))
-    for d in data[1000:1005]:
-        print(d,end="\n\n")
-    
+    pass
