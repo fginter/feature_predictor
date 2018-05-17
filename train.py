@@ -14,6 +14,7 @@ from keras.callbacks import EarlyStopping, ModelCheckpoint, TensorBoard
 from keras.preprocessing.sequence import pad_sequences
 import sys
 import rbfopt
+import gc
 
 
 def train(args,**kwargs): #kwargs is parameters
@@ -28,10 +29,15 @@ def train(args,**kwargs): #kwargs is parameters
     tensorboard_log_dir="{}.tensorboard.log/{}".format(args.model_file,param_string)
     tb_cb=TensorBoard(tensorboard_log_dir)
     print("Tensorboard logs in", tensorboard_log_dir, file=sys.stderr)
-    hist=m.model.fit(x=inputs_train_dict, y=outputs_train_dict, validation_data=(inputs_devel_dict,outputs_devel_dict), verbose=1, batch_size=1000, epochs=10, callbacks=[save_cb,es_cb,tb_cb])
+    hist=m.model.fit(x=inputs_train_dict, y=outputs_train_dict, validation_data=(inputs_devel_dict,outputs_devel_dict), verbose=1, batch_size=700, epochs=7, callbacks=[save_cb,es_cb,tb_cb])
     with open(model_name+".history.json","w") as f:
         json.dump((hist.epoch,hist.history),f)
-    return hist.history["val_loss"][-1]
+    retval=float(min(hist.history["val_loss"]))
+    del m.model
+    del m
+    del hist
+    gc.collect()
+    return retval
 
 if __name__=="__main__":
     import argparse
@@ -56,17 +62,15 @@ if __name__=="__main__":
         inputs_devel_dict,outputs_devel_dict,output_features_dev=data.prep_data(devel_conllu,args.dicts_file,word_embeddings.vocab,word_seq_len=word_seq_len,shuffle=False)
         assert output_features==output_features_dev
 
-
     def black_box(hyperparameters):
         (lr,do,kern_l2,act_l2)=hyperparameters
         return train(args,lr=lr,do=do,kern_l2=kern_l2,act_l2=act_l2)
                                                #  lr    do    k_l2  a_l2
-    bb=rbfopt.RbfoptUserBlackBox(4,numpy.array([0.0001,0.0,  0.0,   0.0]),\
-                                   numpy.array([0.1,  0.3,  0.001, 0.001]),numpy.array(['R','R','R','R']),black_box)
+    bb=rbfopt.RbfoptUserBlackBox(4,numpy.array([0.001,  0.0,  0.0,   0.0]),\
+                                   numpy.array([0.009,  0.3,  0.0001, 0.0001]),numpy.array(['R','R','R','R']),black_box)
     settings = rbfopt.RbfoptSettings(max_clock_time=20*60*60,target_objval=0.0,num_cpus=1)
     alg = rbfopt.RbfoptAlgorithm(settings, bb)
     val, x, itercount, evalcount, fast_evalcount = alg.optimize()
     with open(args.model_file+".rbfopt.log.json","wt") as f:
         json.dump((val, list(x), itercount, evalcount, fast_evalcount),f)
     print("FINAL",val, x, itercount, evalcount, fast_evalcount,file=sys.stderr)
-

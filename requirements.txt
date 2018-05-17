@@ -2,3 +2,4 @@ tensorflow-gpu ==1.5
 h5py
 keras
 gensim
+rbfopt
