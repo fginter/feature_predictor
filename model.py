@@ -57,7 +57,10 @@ class Predictor:
 
     def word_emb_dim(self):
         l=self.model.get_layer("emb_word")
-        print("EMB LAYER CONFIG",l.get_config()["batch_input_shape"])
+        word_emb_length=l.get_config()["input_dim"]
+        word_emb_dim=l.get_config()["output_dim"]
+        return word_emb_length,word_emb_dim
+        
 
 
 class WEmbDepPredictor(Predictor): #+Word embeddings +sequence of L/R dependents 

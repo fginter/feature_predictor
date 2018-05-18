@@ -109,31 +109,36 @@ if __name__=="__main__":
     #print("EMB LAYER CONFIG",p.get_config()["batch_input_shape"])
     try:
         word_emb_length,word_emb_dim=p.word_emb_dim()
+        assert instanceof(word_emb_length,int) and word_emb_length>2
     except:
         word_emb_length=p.model.get_layer("emb_word").get_config()["input_dim"] #some older saved models don't have word_emb_dim()
         word_emb_dim=None
-    word_embeddings=data.read_embeddings(args.embeddings,word_emb_dim-2) #-2 because two dimensions will be added
+    word_embeddings=data.read_embeddings(args.embeddings,word_emb_length-2) #-2 because two dimensions will be added
     del word_embeddings.vectors #we should never need these, we are only after the vocabulary here, really
-    print(p.model.summary(),file=sys.stderr)
+    #print(p.model.summary(),file=sys.stderr)
     print("wordlen/model",p.word_seq_len(),file=sys.stderr)
 
+    if args.errstats:
+        err={}
+    else:
+        err=None
+
+    correct=0
+    total=0
 
     print("INPUTFILES:",args.inputfiles,file=sys.stderr)
     if not args.inputfiles:
         for batch in nonblocking_batches(timeout=0.5,batch_lines=200000):
             inp=list(data.read_conll(batch.split("\n")))
             print("input file batch length",len(inp),"trees",file=sys.stderr)
-            tag_conllu(inp,sys.stdout,p,word_embeddings.vocab)
+            batch_correct,batch_total=tag_conllu(inp,sys.stdout,p,word_embeddings.vocab,err)
+            correct+=batch_correct
+            total+=batch_total
+          
     
-    # inp=list(data.read_conll(sys.stdin))
-    # if args.errstats:
-    #     err={}
-    # else:
-    #     err=None
-
-    # if args.errstats:
-    #     print("ACC={:.2f}%  ({}/{})".format(correct/total*100,correct,total),file=sys.stderr)
-    #     for (pred,gold),err_list in sorted(err.items(),key=lambda item: item[1][0], reverse=True):
-    #         print(err_list[0],"       GS=",gold,"       PRD=",pred,"     ",", ".join(sorted(err_list[1])[:4]),file=sys.stderr)
+    if args.errstats:
+        print("ACC={:.2f}%  ({}/{})".format(correct/total*100,correct,total),file=sys.stderr)
+        for (pred,gold),err_list in sorted(err.items(),key=lambda item: item[1][0], reverse=True):
+            print(err_list[0],"       GS=",gold,"       PRD=",pred,"     ",", ".join(sorted(err_list[1])[:4]),file=sys.stderr)
 
     
