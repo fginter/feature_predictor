@@ -1,5 +1,5 @@
 import tensorflow as tf
-from keras.backend.tensorflow_backend import set_session
+from keras.backend.tensorflow_backend import set_session, clear_session
 config = tf.ConfigProto()
 config.gpu_options.per_process_gpu_memory_fraction = -1
 config.gpu_options.allow_growth = True
@@ -15,9 +15,11 @@ from keras.preprocessing.sequence import pad_sequences
 import sys
 import rbfopt
 import gc
+import time
 
 
 def train(args,**kwargs): #kwargs is parameters
+
     param_string="__".join("{}_{}".format(k,v) for k,v in kwargs.items())
     model_class=getattr(model,args.classname) #Pick the right class
     model_name=args.model_file+"__"+param_string
@@ -29,14 +31,19 @@ def train(args,**kwargs): #kwargs is parameters
     tensorboard_log_dir="{}.tensorboard.log/{}".format(args.model_file,param_string)
     tb_cb=TensorBoard(tensorboard_log_dir)
     print("Tensorboard logs in", tensorboard_log_dir, file=sys.stderr)
-    hist=m.model.fit(x=inputs_train_dict, y=outputs_train_dict, validation_data=(inputs_devel_dict,outputs_devel_dict), verbose=1, batch_size=700, epochs=7, callbacks=[save_cb,es_cb,tb_cb])
+    hist=m.model.fit(x=inputs_train_dict, y=outputs_train_dict, validation_data=(inputs_devel_dict,outputs_devel_dict), verbose=1, batch_size=1000, epochs=13, callbacks=[save_cb,es_cb,tb_cb])
     with open(model_name+".history.json","w") as f:
         json.dump((hist.epoch,hist.history),f)
     retval=float(min(hist.history["val_loss"]))
+
     del m.model
     del m
     del hist
-    gc.collect()
+    clear_session()
+    for _ in range(10):
+        gc.collect()
+        time.sleep(0.1)
+
     return retval
 
 if __name__=="__main__":
@@ -68,7 +75,7 @@ if __name__=="__main__":
                                                #  lr    do    k_l2  a_l2
     bb=rbfopt.RbfoptUserBlackBox(4,numpy.array([0.001,  0.0,  0.0,   0.0]),\
                                    numpy.array([0.009,  0.3,  0.0001, 0.0001]),numpy.array(['R','R','R','R']),black_box)
-    settings = rbfopt.RbfoptSettings(max_clock_time=20*60*60,target_objval=0.0,num_cpus=1)
+    settings = rbfopt.RbfoptSettings(max_clock_time=8*60*60,target_objval=0.0,num_cpus=1)
     alg = rbfopt.RbfoptAlgorithm(settings, bb)
     val, x, itercount, evalcount, fast_evalcount = alg.optimize()
     with open(args.model_file+".rbfopt.log.json","wt") as f:
