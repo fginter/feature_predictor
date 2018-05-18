@@ -119,6 +119,74 @@ class WEmbDepPredictor(Predictor): #+Word embeddings +sequence of L/R dependents
         self.optimizer=Adam(lr,amsgrad=True)
         self.model.compile(optimizer=self.optimizer,loss="sparse_categorical_crossentropy")
 
+class SiblingWEmbDepPredictor(Predictor): #+Word embeddings +sequence of L/R dependents 
+
+    def build_model(self,dicts_filename,word_seq_len,word_vec,**kwargs):
+        super().build_model(dicts_filename,word_seq_len,word_vec,**kwargs)
+
+        char_emb_dim=100
+        pos_emb_dim=100
+        deprel_emb_dim=100
+        rnn_dim=500
+
+
+        
+        lr=kwargs.get("lr",0.001)
+        dr=kwargs.get("dr",0.0)
+        kern_l2=L2Reg(kwargs.get("kern_l2",0.0))
+        act_l2=L2Reg(kwargs.get("act_l2",0.0))
+        
+        #vectorized train is list of words
+        #each word is (input,output)
+        #input is [[...char sequence...], pos, deprel]
+        #output is [ classnum, classnum, classnum ] with as many classes as there are features
+        
+        inp_chars=Input(name="inp_char_seq",shape=(word_seq_len,)) #this is a sequence
+        inp_wrd=Input(name="inp_word",shape=(1,))
+        inp_left_deps=Input(name="inp_left_deps",shape=(5,)) #
+        inp_right_deps=Input(name="inp_right_deps",shape=(5,)) #
+        inp_left_sibling_rels=Input(name="inp_left_sibling_rels",shape=(5,)) #
+        inp_right_sibling_rels=Input(name="inp_right_sibling_rels",shape=(5,)) #
+        
+        inp_pos=Input(name="inp_pos",shape=(1,)) #one POS
+        inp_deprel=Input(name="inp_deprel",shape=(1,)) #one DEPREL
+
+        word_emb=Flatten()(Embedding(word_vec.vectors.shape[0],word_vec.vectors.shape[1],name="emb_word",trainable=False,mask_zero=False,weights=[word_vec.vectors])(inp_wrd))
+        chars_emb=Embedding(len(self.char_dict),char_emb_dim,mask_zero=False,embeddings_initializer=Constant(value=0.01))(inp_chars)
+        lr_deps_emb=Embedding(len(self.deprel_dict),deprel_emb_dim,mask_zero=False,embeddings_initializer=Constant(value=0.01))
+        lr_sibling_rels_emb=Embedding(len(self.deprel_dict),deprel_emb_dim,mask_zero=False,embeddings_initializer=Constant(value=0.01))
+        left_deps_emb=lr_deps_emb(inp_left_deps)
+        right_deps_emb=lr_deps_emb(inp_right_deps)
+        left_sibling_rels_emb=lr_sibling_rels_emb(inp_left_sibling_rels)
+        right_sibling_rels_emb=lr_sibling_rels_emb(inp_right_sibling_rels)
+        pos_emb=Flatten()(Embedding(len(self.pos_dict),pos_emb_dim,embeddings_initializer=Constant(value=0.01))(inp_pos))
+        drel_emb=Flatten()(Embedding(len(self.deprel_dict),deprel_emb_dim,embeddings_initializer=Constant(value=0.01))(inp_deprel))
+
+        
+        rnn_out_seq=Bidirectional(CuDNNLSTM(rnn_dim,kernel_regularizer=kern_l2,activity_regularizer=act_l2,return_sequences=True))(Dropout(rate=dr)(chars_emb))
+        ldeps_rnn_out_seq=Bidirectional(CuDNNLSTM(rnn_dim,kernel_regularizer=kern_l2,return_sequences=True))(Dropout(rate=dr)(left_deps_emb))
+        rdeps_rnn_out_seq=Bidirectional(CuDNNLSTM(rnn_dim,kernel_regularizer=kern_l2,return_sequences=True))(Dropout(rate=dr)(right_deps_emb))
+
+        lsibrels_rnn_out_seq=Bidirectional(CuDNNLSTM(rnn_dim,kernel_regularizer=kern_l2,return_sequences=True))(Dropout(rate=dr)(left_sibling_rels_emb))
+        rsibrels_rnn_out_seq=Bidirectional(CuDNNLSTM(rnn_dim,kernel_regularizer=kern_l2,return_sequences=True))(Dropout(rate=dr)(right_sibling_rels_emb))
+
+        
+        rnn_out=GlobalMaxPooling1D()(rnn_out_seq)
+        ldeps_rnn_out=GlobalMaxPooling1D()(ldeps_rnn_out_seq)
+        rdeps_rnn_out=GlobalMaxPooling1D()(rdeps_rnn_out_seq)
+        lsibrels_rnn_out=GlobalMaxPooling1D()(lsibrels_rnn_out_seq)
+        rsibrels_rnn_out=GlobalMaxPooling1D()(rsibrels_rnn_out_seq)
+
+        cc=Concatenate()([word_emb,rnn_out,ldeps_rnn_out,rdeps_rnn_out,lsibrels_rnn_out,rsibrels_rnn_out,pos_emb,drel_emb])
+        hidden=Dense(500,activation="tanh")(cc)
+        outputs=[]
+        for feat_name in sorted(self.feat_val_dict.keys()):
+            outputs.append(Dense(len(self.feat_val_dict[feat_name]),name="out_"+normname(feat_name),activation="softmax")(hidden))
+        
+        self.model=Model(inputs=[inp_wrd,inp_left_sibling_rels,inp_right_sibling_rels,inp_chars,inp_left_deps,inp_right_deps,inp_pos,inp_deprel], outputs=outputs)
+        self.optimizer=Adam(lr,amsgrad=True)
+        self.model.compile(optimizer=self.optimizer,loss="sparse_categorical_crossentropy")
+
         
 def acc(out,out_gold):
     out_pred=numpy.vstack([numpy.argmax(p,axis=-1) for p in out]).T  #examples by output
