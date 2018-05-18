@@ -104,9 +104,16 @@ if __name__=="__main__":
 
     p=model.Predictor()
     p.load_model(args.model_file)
-    word_emb_dim=100002
-    word_embeddings=data.read_embeddings(args.embeddings,word_emb_dim)
-    word_embeddings.vectors=None #we should never need these, we are only after the vocabulary here, really
+    print(p.word_emb_dim(),file=sys.stderr)
+    #l=p.model.get_layer("emb_word")
+    #print("EMB LAYER CONFIG",p.get_config()["batch_input_shape"])
+    try:
+        word_emb_length,word_emb_dim=p.word_emb_dim()
+    except:
+        word_emb_length=p.model.get_layer("emb_word").get_config()["input_dim"] #some older saved models don't have word_emb_dim()
+        word_emb_dim=None
+    word_embeddings=data.read_embeddings(args.embeddings,word_emb_dim-2) #-2 because two dimensions will be added
+    del word_embeddings.vectors #we should never need these, we are only after the vocabulary here, really
     print(p.model.summary(),file=sys.stderr)
     print("wordlen/model",p.word_seq_len(),file=sys.stderr)
 
